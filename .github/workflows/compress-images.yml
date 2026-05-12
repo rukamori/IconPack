@@ -6,11 +6,7 @@ on:
       - opened
       - synchronize
     paths:
-      - '**.jpg'
-      - '**.jpeg'
       - '**.png'
-      - '**.webp'
-      - '**.avif'
 
 jobs:
   compress-images:
