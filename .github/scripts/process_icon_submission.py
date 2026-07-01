@@ -20,7 +20,13 @@ METADATA_END = "<!-- ICON_METADATA_END -->"
 REQUIRED_FIELDS = ("name", "author", "file")
 ALLOWED_FIELDS = frozenset((*REQUIRED_FIELDS, "link"))
 SVG_NAMESPACE = "http://www.w3.org/2000/svg"
+XLINK_NAMESPACE = "http://www.w3.org/1999/xlink"
+ANDROID_NAMESPACE = "http://schemas.android.com/apk/res/android"
 MAX_SVG_BYTES = 1_000_000
+SVG_NUMBER = r"[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[Ee][+-]?\d+)?"
+SVG_TRANSLATE_PATTERN = re.compile(
+    rf"\s*translate\(\s*({SVG_NUMBER})(?:[\s,]+({SVG_NUMBER}))?\s*\)\s*"
+)
 SVG_DOCTYPE_PATTERN = re.compile(
     rb"<!DOCTYPE\s+svg(?:\s+(?:PUBLIC|SYSTEM)\s+"
     rb"(?:\"[^\"]*\"|'[^']*')"
@@ -615,15 +621,201 @@ def convert_icon(
         shutil.move(generated, destination)
 
 
+def svg_local_name(element: ElementTree.Element) -> str:
+    return element.tag.rsplit("}", maxsplit=1)[-1]
+
+
+def has_svg_ancestor(
+    element: ElementTree.Element,
+    local_name: str,
+    parent_by_child: dict[ElementTree.Element, ElementTree.Element],
+) -> bool:
+    ancestor = parent_by_child.get(element)
+    while ancestor is not None:
+        if svg_local_name(ancestor) == local_name:
+            return True
+        ancestor = parent_by_child.get(ancestor)
+    return False
+
+
+def prepare_svg_for_android_vector(source: Path, destination: Path) -> None:
+    try:
+        tree = ElementTree.parse(source)
+    except (ElementTree.ParseError, OSError) as error:
+        raise SubmissionError(
+            f"Cannot prepare {source.as_posix()} for Android conversion."
+        ) from error
+
+    root = tree.getroot()
+    parent_by_child = {
+        child: parent
+        for parent in root.iter()
+        for child in parent
+    }
+    transformed_elements = [
+        element
+        for element in root.iter()
+        if element.get("transform")
+        and svg_local_name(element) not in {"svg", "g"}
+    ]
+
+    for element in transformed_elements:
+        parent = parent_by_child.get(element)
+        if parent is None:
+            continue
+
+        if has_svg_ancestor(element, "defs", parent_by_child):
+            raise SubmissionError(
+                f"{source.as_posix()} contains a transformed reusable SVG "
+                "definition that cannot be converted safely."
+            )
+
+        transform = element.attrib.pop("transform")
+        group = ElementTree.Element(
+            f"{{{SVG_NAMESPACE}}}g",
+            {"transform": transform},
+        )
+        index = list(parent).index(element)
+        parent.remove(element)
+        group.append(element)
+        parent.insert(index, group)
+
+    ElementTree.register_namespace("", SVG_NAMESPACE)
+    ElementTree.register_namespace("xlink", XLINK_NAMESPACE)
+    tree.write(destination, encoding="utf-8", xml_declaration=True)
+
+
+def initial_path_position(path_data: str) -> tuple[float, float] | None:
+    command = re.match(r"\s*[Mm]", path_data)
+    if command is None:
+        return None
+    coordinates = re.findall(SVG_NUMBER, path_data[command.end() :])
+    if len(coordinates) < 2:
+        return None
+    return float(coordinates[0]), float(coordinates[1])
+
+
+def translated_source_position(
+    source: Path,
+) -> tuple[float, float] | None:
+    root = ElementTree.parse(source).getroot()
+    parent_by_child = {
+        child: parent
+        for parent in root.iter()
+        for child in parent
+    }
+
+    first_path = next(
+        (
+            element
+            for element in root.iter()
+            if svg_local_name(element) == "path"
+            and not has_svg_ancestor(element, "defs", parent_by_child)
+        ),
+        None,
+    )
+    if first_path is None:
+        return None
+
+    position = initial_path_position(first_path.get("d", ""))
+    if position is None:
+        return None
+
+    translate_x = 0.0
+    translate_y = 0.0
+    element: ElementTree.Element | None = first_path
+    has_translation = False
+    while element is not None:
+        transform = element.get("transform")
+        if transform:
+            match = SVG_TRANSLATE_PATTERN.fullmatch(transform)
+            if match is None:
+                return None
+            translate_x += float(match.group(1))
+            translate_y += float(match.group(2) or 0.0)
+            has_translation = True
+        element = parent_by_child.get(element)
+
+    if not has_translation:
+        return None
+    return position[0] + translate_x, position[1] + translate_y
+
+
+def validate_android_vector_translation(
+    source: Path,
+    generated_root: ElementTree.Element,
+) -> None:
+    expected_position = translated_source_position(source)
+    if expected_position is None:
+        return
+
+    first_path = next(
+        (
+            element
+            for element in generated_root.iter()
+            if element.tag == "path"
+        ),
+        None,
+    )
+    if first_path is None:
+        raise SubmissionError(
+            f"svg2vectordrawable produced no paths for {source.as_posix()}."
+        )
+
+    path_data = first_path.get(
+        f"{{{ANDROID_NAMESPACE}}}pathData",
+        "",
+    )
+    actual_position = initial_path_position(path_data)
+    if actual_position is None:
+        raise SubmissionError(
+            f"svg2vectordrawable produced invalid path data for "
+            f"{source.as_posix()}."
+        )
+
+    parent_by_child = {
+        child: parent
+        for parent in generated_root.iter()
+        for child in parent
+    }
+    translate_x = 0.0
+    translate_y = 0.0
+    ancestor = parent_by_child.get(first_path)
+    while ancestor is not None:
+        translate_x += float(
+            ancestor.get(f"{{{ANDROID_NAMESPACE}}}translateX", "0")
+        )
+        translate_y += float(
+            ancestor.get(f"{{{ANDROID_NAMESPACE}}}translateY", "0")
+        )
+        ancestor = parent_by_child.get(ancestor)
+
+    actual_position = (
+        actual_position[0] + translate_x,
+        actual_position[1] + translate_y,
+    )
+    if any(
+        abs(expected - actual) > 0.02
+        for expected, actual in zip(expected_position, actual_position)
+    ):
+        raise SubmissionError(
+            f"svg2vectordrawable dropped an SVG translation while converting "
+            f"{source.as_posix()}."
+        )
+
+
 def convert_android_vector(s2v: Path, source: Path, destination: Path) -> None:
     with tempfile.TemporaryDirectory(prefix="vector-drawable-") as temporary_directory:
-        generated = Path(temporary_directory) / destination.name
+        temporary = Path(temporary_directory)
+        prepared_source = temporary / source.name
+        generated = temporary / destination.name
+        prepare_svg_for_android_vector(source, prepared_source)
         try:
             subprocess.run(
                 [
                     str(s2v),
                     "--input",
-                    str(source),
+                    str(prepared_source),
                     "--output",
                     str(generated),
                 ],
@@ -649,6 +841,7 @@ def convert_android_vector(s2v: Path, source: Path, destination: Path) -> None:
                 f"svg2vectordrawable did not produce an Android vector drawable "
                 f"for {source.as_posix()}."
             )
+        validate_android_vector_translation(source, root)
         destination.parent.mkdir(parents=True, exist_ok=True)
         shutil.move(generated, destination)
 

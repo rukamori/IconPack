@@ -27,8 +27,43 @@ We'd love to feature your icons in this pack:
 1. **Fork** this repository.
 2. Add each source icon as `submissions/<name>.svg`. SVG is the only accepted
    submission format, and each file must be no larger than 1 MB.
-3. Open a pull request with the **Icon submission** template.
-4. Complete one metadata object in the template for each submitted SVG.
+3. Add this json to your pull request description:
+
+```json
+{
+  "icons": [
+    {
+      "name": "icon name",
+      "author": "your name",
+      "file": "submissions/svgname.svg",
+      "link": "ffork url"
+    }
+}
+```
+
+>[!TIP]
+> if you submit an multiple icon add metadata to each icon:
+
+```json
+{
+  "icons": [
+    {
+      "name": "icon name",
+      "author": "your name",
+      "file": "submissions/svgname.svg",
+      "link": "fork url"
+    },
+    {
+      "name": "your name",
+      "author": "your name",
+      "file": "submissions/svgname.svg",
+      "link": "fork url"
+    }
+  ]
+}
+```
+
+4. Open a pull request.
 
 > [!TIP]
 > If your files is png or jpg, you must convert it using https://www.visioncortex.org/vtracer/
