@@ -54,6 +54,15 @@
     "GitHubAuthorUrl": "https://github.com/BunglonMewing"
   },
   {
+    "Id": "454033",
+    "Name": "Kanade Tune",
+    "Author": "BunglonMewing",
+    "Source": "kanade_tune_bunglonmewing_454033.svg",
+    "Submission": "submissions/kanade_tune.svg",
+    "Link": "https://github.com/BunglonMewing/IconPack",
+    "GitHubAuthorUrl": "https://github.com/BunglonMewing"
+  },
+  {
     "Id": "801991",
     "Name": "Hatsune Miku",
     "Author": "ValteMCPE",
@@ -70,5 +79,14 @@
     "Submission": "submissions/depth.svg",
     "Link": "https://github.com/cognitiveshadows03/IconPack",
     "GitHubAuthorUrl": "https://github.com/cognitiveshadows03"
+  },
+  {
+    "Id": "692860",
+    "Name": "Neon Vibes",
+    "Author": "ValteMCPE",
+    "Source": "neon_vibes_valtemcpe_692860.svg",
+    "Submission": "submissions/neonvibes.svg",
+    "Link": "https://github.com/ValteMCPE/IconPack",
+    "GitHubAuthorUrl": "https://github.com/ValteMCPE"
   }
 ]
