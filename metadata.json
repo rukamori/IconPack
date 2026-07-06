@@ -90,6 +90,15 @@
     "GitHubAuthorUrl": "https://github.com/ValteMCPE"
   },
   {
+    "Id": "712543",
+    "Name": "AT6",
+    "Author": "DougAlvarenga",
+    "Source": "at6_dougalvarenga_712543.svg",
+    "Submission": "submissions/AT6.svg",
+    "Link": "https://github.com/dougalvarenga/IconPack",
+    "GitHubAuthorUrl": "https://github.com/dougalvarenga"
+  },
+  {
     "Id": "955439",
     "Name": "Minecraft",
     "Author": "BunglonMewing",
@@ -106,5 +115,14 @@
     "Submission": "submissions/ramadhan.svg",
     "Link": "https://github.com/BunglonMewing/IconPack",
     "GitHubAuthorUrl": "https://github.com/BunglonMewing"
+   },
+   {
+    "Id": "539452",
+    "Name": "Satoru Gojo",
+    "Author": "ValteMCPE",
+    "Source": "satoru_gojo_valtemcpe_539452.svg",
+    "Submission": "submissions/satorugojo.svg",
+    "Link": "https://github.com/ValteMCPE/IconPack",
+    "GitHubAuthorUrl": "https://github.com/ValteMCPE"
   }
 ]
