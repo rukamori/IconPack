@@ -7,7 +7,6 @@ import secrets
 import shutil
 import subprocess
 import sys
-import tempfile
 import unicodedata
 import xml.etree.ElementTree as ElementTree
 from pathlib import Path, PurePosixPath
@@ -20,15 +19,12 @@ METADATA_END = "<!-- ICON_METADATA_END -->"
 REQUIRED_FIELDS = ("name", "author", "file")
 ALLOWED_FIELDS = frozenset((*REQUIRED_FIELDS, "link"))
 SVG_NAMESPACE = "http://www.w3.org/2000/svg"
-MAX_SVG_BYTES = 1_000_000
+MAX_SVG_BYTES = 700_000
 SVG_DOCTYPE_PATTERN = re.compile(
     rb"<!DOCTYPE\s+svg(?:\s+(?:PUBLIC|SYSTEM)\s+"
     rb"(?:\"[^\"]*\"|'[^']*')"
     rb"(?:\s+(?:\"[^\"]*\"|'[^']*'))?)?\s*>",
     re.IGNORECASE,
-)
-PACKAGE_NAME_PATTERN = re.compile(
-    r"^[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)+$"
 )
 MAX_FILENAME_COMPONENT_LENGTH = 48
 
@@ -39,12 +35,13 @@ class SubmissionError(Exception):
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--mode", choices=("pull-request", "rebuild"), required=True)
+    parser.add_argument(
+        "--mode",
+        choices=("pull-request", "rebuild", "update"),
+        required=True,
+    )
     parser.add_argument("--event-path", type=Path)
     parser.add_argument("--base-sha")
-    parser.add_argument("--valkyrie", type=Path, required=True)
-    parser.add_argument("--s2v", type=Path, required=True)
-    parser.add_argument("--package-name", required=True)
     parser.add_argument("--random-digits", type=int, choices=(6,), default=6)
     return parser.parse_args()
 
@@ -65,7 +62,9 @@ def read_pr_body(event_path: Path) -> str:
         event = json.loads(event_path.read_text(encoding="utf-8"))
         body = event["pull_request"]["body"]
     except (OSError, json.JSONDecodeError, KeyError, TypeError) as error:
-        raise SubmissionError(f"Cannot read the pull request body: {error}") from error
+        raise SubmissionError(
+            f"Cannot read the pull request body: {error}"
+        ) from error
     if not isinstance(body, str):
         raise SubmissionError("The pull request body is empty.")
     return body
@@ -80,7 +79,8 @@ def read_pr_author_url(event_path: Path) -> str:
             f"Cannot read the pull request author: {error}"
         ) from error
     if not isinstance(login, str) or not re.fullmatch(
-        r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})", login
+        r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})",
+        login,
     ):
         raise SubmissionError("The pull request author login is invalid.")
     return f"https://github.com/{login}"
@@ -91,7 +91,9 @@ def parse_form(body: str) -> list[dict[str, str]]:
     end = body.find(METADATA_END)
     markers_missing = start < 0 and end < 0
     if not markers_missing and (start < 0 or end < 0 or end <= start):
-        raise SubmissionError("The icon metadata markers are missing or out of order.")
+        raise SubmissionError(
+            "The icon metadata markers are missing or out of order."
+        )
 
     if markers_missing:
         json_content = body.strip()
@@ -107,13 +109,16 @@ def parse_form(body: str) -> list[dict[str, str]]:
     try:
         form = json.loads(json_content)
     except json.JSONDecodeError as error:
-        raise SubmissionError(f"Icon metadata is not valid JSON: {error}") from error
-
+        raise SubmissionError(
+            f"Icon metadata is not valid JSON: {error}"
+        ) from error
     if not isinstance(form, dict) or set(form) != {"icons"}:
         raise SubmissionError('Icon metadata must contain only an "icons" array.')
     raw_icons = form["icons"]
     if not isinstance(raw_icons, list) or not raw_icons:
-        raise SubmissionError('The "icons" array must contain at least one icon.')
+        raise SubmissionError(
+            'The "icons" array must contain at least one icon.'
+        )
 
     icons: list[dict[str, str]] = []
     seen_files: set[str] = set()
@@ -123,13 +128,17 @@ def parse_form(body: str) -> list[dict[str, str]]:
         unknown_fields = set(raw_icon) - ALLOWED_FIELDS
         if unknown_fields:
             fields = ", ".join(sorted(unknown_fields))
-            raise SubmissionError(f"Icon #{index} contains unsupported fields: {fields}.")
+            raise SubmissionError(
+                f"Icon #{index} contains unsupported fields: {fields}."
+            )
 
         icon: dict[str, str] = {}
         for field in REQUIRED_FIELDS:
             value = raw_icon.get(field)
             if not isinstance(value, str) or not value.strip():
-                raise SubmissionError(f'Icon #{index} requires a non-empty "{field}".')
+                raise SubmissionError(
+                    f'Icon #{index} requires a non-empty "{field}".'
+                )
             icon[field] = value.strip()
         if len(icon["name"]) > 120 or len(icon["author"]) > 120:
             raise SubmissionError(
@@ -138,7 +147,9 @@ def parse_form(body: str) -> list[dict[str, str]]:
 
         link = raw_icon.get("link", "")
         if not isinstance(link, str):
-            raise SubmissionError(f'Icon #{index} field "link" must be a string.')
+            raise SubmissionError(
+                f'Icon #{index} field "link" must be a string.'
+            )
         icon["link"] = link.strip()
         if icon["link"]:
             parsed_link = urlparse(icon["link"])
@@ -160,7 +171,9 @@ def parse_form(body: str) -> list[dict[str, str]]:
             )
         normalized_file = file_path.as_posix()
         if normalized_file in seen_files:
-            raise SubmissionError(f'Duplicate file in metadata: "{normalized_file}".')
+            raise SubmissionError(
+                f'Duplicate file in metadata: "{normalized_file}".'
+            )
         seen_files.add(normalized_file)
         icon["file"] = normalized_file
         icons.append(icon)
@@ -178,15 +191,15 @@ def changed_paths(base_sha: str) -> list[tuple[str, str]]:
     )
     changes: list[tuple[str, str]] = []
     for line in output.splitlines():
-        if not line:
-            continue
-        status, path = line.split("\t", maxsplit=1)
-        changes.append((status, path))
+        if line:
+            status, path = line.split("\t", maxsplit=1)
+            changes.append((status, path))
     return changes
 
 
 def validate_pr_changes(
-    changes: list[tuple[str, str]], icons: list[dict[str, str]]
+    changes: list[tuple[str, str]],
+    icons: list[dict[str, str]],
 ) -> bool:
     submitted_files = {icon["file"] for icon in icons}
     actual_submissions = {
@@ -195,9 +208,7 @@ def validate_pr_changes(
 
     if not actual_submissions:
         generated_change = any(
-            path == "metadata.json"
-            or path.startswith("pack/")
-            or path.startswith("xml/")
+            path == "metadata.json" or path.startswith("svg/")
             for _, path in changes
         )
         if generated_change:
@@ -235,7 +246,7 @@ def validate_svg(path: Path) -> None:
     if size == 0 or size > MAX_SVG_BYTES:
         raise SubmissionError(
             f"{path.as_posix()} must be non-empty and no larger than "
-            f"{MAX_SVG_BYTES // 1_000_000} MB."
+            f"{MAX_SVG_BYTES // 1_000} KB."
         )
     svg_bytes = path.read_bytes()
     if svg_bytes.startswith(b"\x89PNG\r\n\x1a\n"):
@@ -247,7 +258,9 @@ def validate_svg(path: Path) -> None:
     if b"<!ENTITY" in upper_svg_bytes:
         raise SubmissionError(f"{path.as_posix()} must not declare an entity.")
     sanitized_svg_bytes, doctype_count = SVG_DOCTYPE_PATTERN.subn(
-        b"", svg_bytes, count=1
+        b"",
+        svg_bytes,
+        count=1,
     )
     if b"<!DOCTYPE" in sanitized_svg_bytes.upper():
         raise SubmissionError(
@@ -256,9 +269,13 @@ def validate_svg(path: Path) -> None:
     try:
         root = ElementTree.fromstring(sanitized_svg_bytes)
     except ElementTree.ParseError as error:
-        raise SubmissionError(f"{path.as_posix()} is not valid XML: {error}") from error
-    if root.tag != f"{{{SVG_NAMESPACE}}}svg" and root.tag != "svg":
-        raise SubmissionError(f"{path.as_posix()} does not have an SVG root element.")
+        raise SubmissionError(
+            f"{path.as_posix()} is not valid XML: {error}"
+        ) from error
+    if root.tag not in {f"{{{SVG_NAMESPACE}}}svg", "svg"}:
+        raise SubmissionError(
+            f"{path.as_posix()} does not have an SVG root element."
+        )
     for element in root.iter():
         local_tag = element.tag.rsplit("}", maxsplit=1)[-1].lower()
         if local_tag in {"script", "foreignobject"}:
@@ -315,7 +332,8 @@ def workflow_message(value: str) -> str:
 
 
 def warn_duplicate_authors(
-    icons: list[dict[str, str]], metadata: list[dict[str, Any]]
+    icons: list[dict[str, str]],
+    metadata: list[dict[str, Any]],
 ) -> None:
     existing_authors = {
         entry["Author"]
@@ -337,9 +355,7 @@ def warn_duplicate_authors(
         print(f"::warning title=Duplicate author name::{message}")
 
 
-def used_ids(
-    metadata: list[dict[str, Any]], random_digits: int
-) -> set[str]:
+def used_ids(metadata: list[dict[str, Any]], random_digits: int) -> set[str]:
     identifier_pattern = re.compile(rf"\d{{{random_digits}}}")
     filename_pattern = re.compile(rf"_(\d{{{random_digits}}})(?:\.|$)")
     identifiers = {
@@ -348,11 +364,11 @@ def used_ids(
         if isinstance(entry.get("Id"), (str, int))
         and identifier_pattern.fullmatch(str(entry["Id"]))
     }
-    for directory in (Path("pack"), Path("xml")):
-        for path in directory.iterdir() if directory.is_dir() else ():
-            match = filename_pattern.search(path.name)
-            if match:
-                identifiers.add(match.group(1))
+    svg_directory = Path("svg")
+    for path in svg_directory.iterdir() if svg_directory.is_dir() else ():
+        match = filename_pattern.search(path.name)
+        if match:
+            identifiers.add(match.group(1))
     return identifiers
 
 
@@ -364,42 +380,34 @@ def next_id(existing: set[str], random_digits: int) -> str:
             f"All {random_digits}-digit icon IDs are already in use."
         )
     while True:
-        identifier = str(secrets.randbelow(available_identifiers) + lower_bound)
+        identifier = str(
+            secrets.randbelow(available_identifiers) + lower_bound
+        )
         if identifier not in existing:
             existing.add(identifier)
             return identifier
 
 
-def kotlin_filename_component(value: str, fallback: str) -> str:
-    normalized = unicodedata.normalize("NFKC", value)
-    words = re.findall(r"[^\W_]+", normalized, flags=re.UNICODE)
-    component = "".join(word[:1].upper() + word[1:] for word in words)
-    if not component:
-        component = fallback
-    return component[:MAX_FILENAME_COMPONENT_LENGTH] or fallback
-
-
-def xml_filename_component(value: str, fallback: str) -> str:
+def svg_filename_component(value: str, fallback: str) -> str:
     normalized = unicodedata.normalize("NFKD", value)
     ascii_value = normalized.encode("ascii", "ignore").decode("ascii")
-    component = re.sub(r"[^a-z0-9]+", "_", ascii_value.lower()).strip("_")
+    component = re.sub(
+        r"[^a-z0-9]+",
+        "_",
+        ascii_value.lower(),
+    ).strip("_")
     return component[:MAX_FILENAME_COMPONENT_LENGTH].rstrip("_") or fallback
 
 
-def kotlin_asset_stem(name: str, author: str, identifier: str) -> str:
-    icon_name = kotlin_filename_component(name, "Icon")
-    author_name = kotlin_filename_component(author, "Author")
-    return f"Icon{icon_name}By{author_name}{identifier}"
-
-
-def xml_asset_stem(name: str, author: str, identifier: str) -> str:
-    icon_name = xml_filename_component(name, "icon")
-    author_name = xml_filename_component(author, "author")
+def svg_asset_stem(name: str, author: str, identifier: str) -> str:
+    icon_name = svg_filename_component(name, "icon")
+    author_name = svg_filename_component(author, "author")
     return f"{icon_name}_{author_name}_{identifier}"
 
 
 def metadata_by_id(
-    metadata: list[dict[str, Any]], source: str
+    metadata: list[dict[str, Any]],
+    source: str,
 ) -> dict[str, dict[str, Any]]:
     entries_by_id: dict[str, dict[str, Any]] = {}
     for index, entry in enumerate(metadata, start=1):
@@ -409,7 +417,8 @@ def metadata_by_id(
         normalized_identifier = str(identifier)
         if re.fullmatch(r"\d{4}|\d{6}", normalized_identifier) is None:
             raise SubmissionError(
-                f'{source} entry #{index} has invalid Id "{normalized_identifier}".'
+                f'{source} entry #{index} has invalid Id '
+                f'"{normalized_identifier}".'
             )
         if normalized_identifier in entries_by_id:
             raise SubmissionError(
@@ -420,7 +429,9 @@ def metadata_by_id(
 
 
 def metadata_text(
-    entry: dict[str, Any], field: str, identifier: str
+    entry: dict[str, Any],
+    field: str,
+    identifier: str,
 ) -> str:
     value = entry.get(field)
     if not isinstance(value, str) or not value.strip():
@@ -430,46 +441,43 @@ def metadata_text(
     return value.strip()
 
 
-def asset_filename(
-    entry: dict[str, Any], field: str, identifier: str
-) -> str:
-    value = entry.get(field)
+def source_filename(entry: dict[str, Any], identifier: str) -> str:
+    value = entry.get("Source")
     if (
         not isinstance(value, str)
         or not value
         or Path(value).name != value
+        or Path(value).suffix.lower() != ".svg"
     ):
         raise SubmissionError(
-            f'Metadata entry with Id "{identifier}" requires a valid {field}.'
+            f'Metadata entry with Id "{identifier}" requires a valid SVG Source.'
         )
     return value
 
 
-def renamed_kotlin_content(
-    source: Path, previous_symbol: str, expected_symbol: str
-) -> str:
-    try:
-        content = source.read_text(encoding="utf-8")
-    except OSError as error:
+def current_svg_path(entry: dict[str, Any], identifier: str) -> Path:
+    declared_path = Path("svg") / source_filename(entry, identifier)
+    if declared_path.is_file() and not declared_path.is_symlink():
+        return declared_path
+    svg_directory = Path("svg")
+    candidates = [
+        path
+        for path in svg_directory.iterdir() if svg_directory.is_dir()
+        if path.is_file()
+        and not path.is_symlink()
+        and path.suffix.lower() == ".svg"
+        and path.stem.endswith(f"_{identifier}")
+    ]
+    if not candidates:
         raise SubmissionError(
-            f"Cannot read generated Kotlin asset {source.as_posix()}: {error}"
-        ) from error
-    if previous_symbol == expected_symbol:
-        return content
-
-    symbol_pattern = re.compile(
-        rf"(?<![A-Za-z0-9_]){re.escape(previous_symbol)}"
-        rf"(?![A-Za-z0-9_])"
-    )
-    updated_content, replacement_count = symbol_pattern.subn(
-        expected_symbol, content
-    )
-    if replacement_count == 0:
-        raise SubmissionError(
-            f"{source.as_posix()} does not contain its expected generated "
-            f'symbol "{previous_symbol}".'
+            f'Cannot find current SVG asset for Id "{identifier}".'
         )
-    return updated_content
+    if len(candidates) > 1:
+        filenames = ", ".join(sorted(path.name for path in candidates))
+        raise SubmissionError(
+            f'Multiple SVG assets match Id "{identifier}": {filenames}.'
+        )
+    return candidates[0]
 
 
 def synchronize_metadata_assets(
@@ -478,179 +486,36 @@ def synchronize_metadata_assets(
 ) -> int:
     entries_by_id = metadata_by_id(metadata, "metadata.json")
     base_entries_by_id = metadata_by_id(
-        base_metadata, "base metadata.json"
+        base_metadata,
+        "base metadata.json",
     )
-    updated_entries = [
-        (identifier, entry, base_entries_by_id[identifier])
-        for identifier, entry in entries_by_id.items()
-        if identifier in base_entries_by_id
-        and entry != base_entries_by_id[identifier]
-    ]
     synchronized_count = 0
 
-    for identifier, entry, base_entry in updated_entries:
+    for identifier, entry in entries_by_id.items():
+        entry.pop("Filename", None)
+        if identifier not in base_entries_by_id:
+            continue
         name = metadata_text(entry, "Name", identifier)
         author = metadata_text(entry, "Author", identifier)
-        expected_symbol = kotlin_asset_stem(name, author, identifier)
-        expected_filename = f"{expected_symbol}.kt"
-        expected_source = (
-            f"{xml_asset_stem(name, author, identifier)}.xml"
-        )
-        previous_filename = asset_filename(
-            base_entry, "Filename", identifier
-        )
-        previous_source = asset_filename(base_entry, "Source", identifier)
-        previous_symbol = Path(previous_filename).stem
-        previous_pack_path = Path("pack") / previous_filename
-        expected_pack_path = Path("pack") / expected_filename
-        previous_xml_path = Path("xml") / previous_source
-        expected_xml_path = Path("xml") / expected_source
-
-        if expected_pack_path != previous_pack_path:
-            if expected_pack_path.exists() and previous_pack_path.exists():
+        current_path = current_svg_path(entry, identifier)
+        expected_filename = f"{svg_asset_stem(name, author, identifier)}.svg"
+        expected_path = Path("svg") / expected_filename
+        if expected_path != current_path:
+            if expected_path.exists():
                 raise SubmissionError(
-                    f"Cannot rename {previous_pack_path.as_posix()} because "
-                    f"{expected_pack_path.as_posix()} already exists."
+                    f"Cannot rename {current_path.as_posix()} because "
+                    f"{expected_path.as_posix()} already exists."
                 )
-            if previous_pack_path.is_file():
-                updated_content = renamed_kotlin_content(
-                    previous_pack_path,
-                    previous_symbol,
-                    expected_symbol,
-                )
-                expected_pack_path.write_text(
-                    updated_content, encoding="utf-8"
-                )
-                previous_pack_path.unlink()
-            elif not expected_pack_path.is_file():
-                raise SubmissionError(
-                    f'Cannot find Kotlin asset for Id "{identifier}".'
-                )
-        elif expected_pack_path.is_file():
-            updated_content = renamed_kotlin_content(
-                expected_pack_path,
-                previous_symbol,
-                expected_symbol,
-            )
-            if updated_content != expected_pack_path.read_text(encoding="utf-8"):
-                expected_pack_path.write_text(
-                    updated_content, encoding="utf-8"
-                )
-        else:
-            raise SubmissionError(
-                f'Cannot find Kotlin asset for Id "{identifier}".'
-            )
-
-        if expected_xml_path != previous_xml_path:
-            if expected_xml_path.exists() and previous_xml_path.exists():
-                raise SubmissionError(
-                    f"Cannot rename {previous_xml_path.as_posix()} because "
-                    f"{expected_xml_path.as_posix()} already exists."
-                )
-            if previous_xml_path.is_file():
-                previous_xml_path.rename(expected_xml_path)
-            elif not expected_xml_path.is_file():
-                raise SubmissionError(
-                    f'Cannot find XML asset for Id "{identifier}".'
-                )
-        elif not expected_xml_path.is_file():
-            raise SubmissionError(
-                f'Cannot find XML asset for Id "{identifier}".'
-            )
-
+            current_path.rename(expected_path)
+            synchronized_count += 1
+        if entry.get("Source") != expected_filename:
+            entry["Source"] = expected_filename
+            synchronized_count += 1
         entry["Id"] = identifier
         entry["Name"] = name
         entry["Author"] = author
-        entry["Filename"] = expected_filename
-        entry["Source"] = expected_source
-        synchronized_count += 1
 
     return synchronized_count
-
-
-def convert_icon(
-    valkyrie: Path,
-    source: Path,
-    destination: Path,
-    generated_name: str,
-    package_name: str,
-) -> None:
-    with tempfile.TemporaryDirectory(prefix="valkyrie-") as temporary_directory:
-        temporary = Path(temporary_directory)
-        staged_svg = temporary / f"{generated_name}.svg"
-        output = temporary / "output"
-        shutil.copyfile(source, staged_svg)
-        try:
-            subprocess.run(
-                [
-                    str(valkyrie),
-                    "svgxml2imagevector",
-                    "--input-path",
-                    str(staged_svg),
-                    "--output-path",
-                    str(output),
-                    "--package-name",
-                    package_name,
-                    "--flatpackage",
-                    "true",
-                    "--output-format",
-                    "lazy-property",
-                    "--generate-preview",
-                    "false",
-                    "--trailing-comma",
-                    "true",
-                ],
-                check=True,
-            )
-        except subprocess.CalledProcessError as error:
-            raise SubmissionError(
-                f"Valkyrie could not convert {source.as_posix()}."
-            ) from error
-        generated = output / f"{generated_name}.kt"
-        if not generated.is_file():
-            raise SubmissionError(
-                f"Valkyrie did not produce the expected {generated_name}.kt file."
-            )
-        destination.parent.mkdir(parents=True, exist_ok=True)
-        shutil.move(generated, destination)
-
-
-def convert_android_vector(s2v: Path, source: Path, destination: Path) -> None:
-    with tempfile.TemporaryDirectory(prefix="vector-drawable-") as temporary_directory:
-        generated = Path(temporary_directory) / destination.name
-        try:
-            subprocess.run(
-                [
-                    str(s2v),
-                    "--input",
-                    str(source),
-                    "--output",
-                    str(generated),
-                ],
-                check=True,
-            )
-        except subprocess.CalledProcessError as error:
-            raise SubmissionError(
-                f"svg2vectordrawable could not convert {source.as_posix()}."
-            ) from error
-        if not generated.is_file():
-            raise SubmissionError(
-                f"svg2vectordrawable did not produce the expected "
-                f"{destination.name} file."
-            )
-        try:
-            root = ElementTree.parse(generated).getroot()
-        except (ElementTree.ParseError, OSError) as error:
-            raise SubmissionError(
-                f"svg2vectordrawable produced invalid XML for {source.as_posix()}."
-            ) from error
-        if root.tag != "vector":
-            raise SubmissionError(
-                f"svg2vectordrawable did not produce an Android vector drawable "
-                f"for {source.as_posix()}."
-            )
-        destination.parent.mkdir(parents=True, exist_ok=True)
-        shutil.move(generated, destination)
 
 
 def process_pull_request(args: argparse.Namespace) -> None:
@@ -663,166 +528,110 @@ def process_pull_request(args: argparse.Namespace) -> None:
         if not any(path == "metadata.json" for _, path in changes):
             print("No unprocessed SVG submissions remain; nothing to do.")
             return
-
         metadata_path = Path("metadata.json")
         metadata = read_metadata(metadata_path)
-        base_metadata = read_metadata_at_revision(args.base_sha)
         synchronized_count = synchronize_metadata_assets(
-            metadata, base_metadata
+            metadata,
+            read_metadata_at_revision(args.base_sha),
         )
         metadata_path.write_text(
             json.dumps(metadata, ensure_ascii=False, indent=2) + "\n",
             encoding="utf-8",
         )
-        print(
-            f"Synchronized {synchronized_count} metadata asset set(s)."
-        )
+        print(f"Synchronized {synchronized_count} SVG asset change(s).")
         return
 
     icons = parse_form(read_pr_body(args.event_path))
-    github_author_url = read_pr_author_url(args.event_path)
     if not validate_pr_changes(changes, icons):
         return
-
+    github_author_url = read_pr_author_url(args.event_path)
     metadata_path = Path("metadata.json")
     metadata = read_metadata(metadata_path)
     base_metadata = read_metadata_at_revision(args.base_sha)
     warn_duplicate_authors(icons, base_metadata)
     identifiers = used_ids(metadata, args.random_digits)
-    Path("pack").mkdir(exist_ok=True)
-    Path("xml").mkdir(exist_ok=True)
+    Path("svg").mkdir(exist_ok=True)
 
+    pending_assets: list[tuple[Path, Path, dict[str, Any]]] = []
     for icon in icons:
         submission = Path(icon["file"])
         validate_svg(submission)
         identifier = next_id(identifiers, args.random_digits)
-        generated_name = kotlin_asset_stem(
-            icon["name"], icon["author"], identifier
+        destination_filename = (
+            f"{svg_asset_stem(icon['name'], icon['author'], identifier)}.svg"
         )
-        kotlin_filename = f"{generated_name}.kt"
-        xml_filename = (
-            f"{xml_asset_stem(icon['name'], icon['author'], identifier)}.xml"
-        )
-
-        convert_icon(
-            valkyrie=args.valkyrie,
-            source=submission,
-            destination=Path("pack") / kotlin_filename,
-            generated_name=generated_name,
-            package_name=args.package_name,
-        )
-        convert_android_vector(
-            s2v=args.s2v,
-            source=submission,
-            destination=Path("xml") / xml_filename,
-        )
-        submission.unlink()
-        metadata.append(
-            {
-                "Id": identifier,
-                "Name": icon["name"],
-                "Author": icon["author"],
-                "Filename": kotlin_filename,
-                "Source": xml_filename,
-                "Submission": icon["file"],
-                "Link": icon["link"],
-                "GitHubAuthorUrl": github_author_url,
-            }
+        destination = Path("svg") / destination_filename
+        if destination.exists():
+            raise SubmissionError(
+                f"{destination.as_posix()} already exists."
+            )
+        pending_assets.append(
+            (
+                submission,
+                destination,
+                {
+                    "Id": identifier,
+                    "Name": icon["name"],
+                    "Author": icon["author"],
+                    "Source": destination_filename,
+                    "Submission": icon["file"],
+                    "Link": icon["link"],
+                    "GitHubAuthorUrl": github_author_url,
+                },
+            )
         )
 
+    for submission, destination, entry in pending_assets:
+        shutil.move(submission, destination)
+        metadata.append(entry)
     metadata_path.write_text(
         json.dumps(metadata, ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8",
     )
+    print(f"Stored {len(pending_assets)} submitted SVG icon(s).")
 
 
 def metadata_matches_submission(
-    entry: dict[str, Any], submission: Path
+    entry: dict[str, Any],
+    submission: Path,
 ) -> bool:
     identifier = str(entry.get("Id", ""))
     source = entry.get("Source")
     original_submission = entry.get("Submission")
-    filename = entry.get("Filename")
     return (
         original_submission == submission.as_posix()
         or source == submission.name
         or (
-            isinstance(filename, str)
-            and Path(filename).name == filename
-            and Path(filename).stem == submission.stem
+            re.fullmatch(r"\d{4}|\d{6}", identifier) is not None
+            and submission.name == f"{identifier}.svg"
         )
-        or (re.fullmatch(r"\d{4}|\d{6}", identifier) is not None
-            and submission.name == f"{identifier}.svg")
     )
 
 
-def reconcile_icon_pack(
-    metadata: list[dict[str, Any]],
-) -> tuple[list[dict[str, Any]], int, int]:
-    retained_metadata: list[dict[str, Any]] = []
-    referenced_pack_files: set[str] = set()
-    referenced_xml_files: set[str] = set()
-    removed_metadata_count = 0
-
-    for entry in metadata:
-        filename = entry.get("Filename")
-        if (
-            not isinstance(filename, str)
-            or not filename
-            or Path(filename).name != filename
-        ):
-            removed_metadata_count += 1
-            continue
-
-        pack_file = Path("pack") / filename
-        if pack_file.is_symlink() or not pack_file.is_file():
-            removed_metadata_count += 1
-            continue
-
-        retained_metadata.append(entry)
-        referenced_pack_files.add(filename)
-        source = entry.get("Source")
-        if (
-            isinstance(source, str)
-            and source
-            and Path(source).name == source
-        ):
-            referenced_xml_files.add(source)
-
-    removed_file_count = 0
-    for directory, referenced_files in (
-        (Path("pack"), referenced_pack_files),
-        (Path("xml"), referenced_xml_files),
-    ):
-        if not directory.is_dir():
-            continue
-        for path in directory.iterdir():
+def remove_unreferenced_svg_files(metadata: list[dict[str, Any]]) -> int:
+    referenced_files = {
+        source_filename(entry, str(entry["Id"]))
+        for entry in metadata
+    }
+    removed_count = 0
+    svg_directory = Path("svg")
+    if svg_directory.is_dir():
+        for path in svg_directory.iterdir():
             if path.name == ".gitkeep":
                 continue
             if path.is_dir() and not path.is_symlink():
                 continue
             if path.name not in referenced_files:
                 path.unlink()
-                removed_file_count += 1
-
-    submissions_directory = Path("submissions")
-    if submissions_directory.is_dir():
-        for path in submissions_directory.iterdir():
-            if path.name == ".gitkeep":
-                continue
-            if path.is_dir() and not path.is_symlink():
-                continue
-            path.unlink()
-            removed_file_count += 1
-
-    return retained_metadata, removed_metadata_count, removed_file_count
+                removed_count += 1
+    return removed_count
 
 
 def rebuild_existing_icons(args: argparse.Namespace) -> None:
     metadata_path = Path("metadata.json")
     metadata = read_metadata(metadata_path)
+    metadata_by_id(metadata, "metadata.json")
     submissions = sorted(Path("submissions").glob("*.svg"))
-    identifiers = used_ids(metadata, args.random_digits)
     rebuilt_count = 0
 
     for submission in submissions:
@@ -832,103 +641,110 @@ def rebuild_existing_icons(args: argparse.Namespace) -> None:
             if metadata_matches_submission(entry, submission)
         ]
         if not matches:
-            print(
-                f"Skipping {submission.as_posix()}: no matching metadata entry."
+            raise SubmissionError(
+                f"{submission.as_posix()} has no matching metadata entry."
             )
-            continue
         if len(matches) > 1:
             raise SubmissionError(
                 f"{submission.as_posix()} matches multiple metadata entries."
             )
-
         entry = matches[0]
-        identifier = str(entry.get("Id", ""))
-        if re.fullmatch(rf"\d{{{args.random_digits}}}", identifier) is None:
-            identifier = next_id(identifiers, args.random_digits)
-        name = entry.get("Name")
-        author = entry.get("Author")
-        if not isinstance(name, str) or not name.strip():
-            raise SubmissionError(
-                f"{submission.as_posix()} metadata requires a Name."
-            )
-        if not isinstance(author, str) or not author.strip():
-            raise SubmissionError(
-                f"{submission.as_posix()} metadata requires an Author."
-            )
-        generated_name = kotlin_asset_stem(name, author, identifier)
-        expected_filename = f"{generated_name}.kt"
-        previous_filename = entry.get("Filename")
-        if not isinstance(previous_filename, str) or not previous_filename:
-            raise SubmissionError(
-                f"{submission.as_posix()} metadata requires a Filename."
-            )
-        if Path(previous_filename).name != previous_filename:
-            raise SubmissionError(
-                f"{submission.as_posix()} metadata Filename must not contain a path."
-            )
-
+        identifier = str(entry["Id"])
+        name = metadata_text(entry, "Name", identifier)
+        author = metadata_text(entry, "Author", identifier)
         validate_svg(submission)
-        convert_icon(
-            valkyrie=args.valkyrie,
-            source=submission,
-            destination=Path("pack") / expected_filename,
-            generated_name=generated_name,
-            package_name=args.package_name,
-        )
-        previous_asset = Path("pack") / previous_filename
-        if previous_asset.name != expected_filename:
-            previous_asset.unlink(missing_ok=True)
-        previous_source = entry.get("Source")
-        generated_xml = Path("xml") / (
-            f"{xml_asset_stem(name, author, identifier)}.xml"
-        )
-        convert_android_vector(
-            s2v=args.s2v,
-            source=submission,
-            destination=generated_xml,
-        )
-        if (
-            isinstance(previous_source, str)
-            and Path(previous_source).name == previous_source
-            and previous_source != generated_xml.name
-        ):
-            (Path("xml") / previous_source).unlink(missing_ok=True)
-        submission.unlink()
+        expected_filename = f"{svg_asset_stem(name, author, identifier)}.svg"
+        expected_path = Path("svg") / expected_filename
+        previous_path = current_svg_path(entry, identifier)
+        if expected_path != previous_path and expected_path.exists():
+            raise SubmissionError(
+                f"{expected_path.as_posix()} already exists."
+            )
+        expected_path.parent.mkdir(exist_ok=True)
+        shutil.move(submission, expected_path)
+        if previous_path != expected_path:
+            previous_path.unlink(missing_ok=True)
+        entry.pop("Filename", None)
         entry["Id"] = identifier
-        entry["Filename"] = expected_filename
-        entry["Source"] = generated_xml.name
-        entry["Submission"] = submission.as_posix()
+        entry["Name"] = name
+        entry["Author"] = author
+        entry["Source"] = expected_filename
         rebuilt_count += 1
 
-    metadata, removed_metadata_count, removed_file_count = reconcile_icon_pack(
-        metadata
-    )
-
+    update_count, removed_count = reconcile_existing_icons(metadata)
     metadata_path.write_text(
         json.dumps(metadata, ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8",
     )
     print(
-        f"Rebuilt {rebuilt_count} icon(s), removed "
-        f"{removed_metadata_count} unused metadata record(s), and removed "
-        f"{removed_file_count} unreferenced file(s)."
+        f"Rebuilt {rebuilt_count} SVG icon(s), synchronized "
+        f"{update_count} metadata asset(s), and removed "
+        f"{removed_count} unreferenced SVG file(s)."
+    )
+
+
+def reconcile_existing_icons(
+    metadata: list[dict[str, Any]],
+) -> tuple[int, int]:
+    entries_by_id = metadata_by_id(metadata, "metadata.json")
+    expected_filenames: set[str] = set()
+    synchronized_count = 0
+
+    for identifier, entry in entries_by_id.items():
+        name = metadata_text(entry, "Name", identifier)
+        author = metadata_text(entry, "Author", identifier)
+        current_path = current_svg_path(entry, identifier)
+        expected_filename = f"{svg_asset_stem(name, author, identifier)}.svg"
+        if expected_filename in expected_filenames:
+            raise SubmissionError(
+                f'Duplicate generated SVG filename "{expected_filename}".'
+            )
+        expected_filenames.add(expected_filename)
+        expected_path = Path("svg") / expected_filename
+        if expected_path != current_path:
+            if expected_path.exists():
+                raise SubmissionError(
+                    f"Cannot rename {current_path.as_posix()} because "
+                    f"{expected_path.as_posix()} already exists."
+                )
+            current_path.rename(expected_path)
+            synchronized_count += 1
+        if entry.get("Source") != expected_filename:
+            entry["Source"] = expected_filename
+            synchronized_count += 1
+        if "Filename" in entry:
+            entry.pop("Filename")
+            synchronized_count += 1
+        entry["Id"] = identifier
+        entry["Name"] = name
+        entry["Author"] = author
+
+    removed_count = remove_unreferenced_svg_files(metadata)
+    return synchronized_count, removed_count
+
+
+def update_existing_icons() -> None:
+    metadata_path = Path("metadata.json")
+    metadata = read_metadata(metadata_path)
+    synchronized_count, removed_count = reconcile_existing_icons(metadata)
+    metadata_path.write_text(
+        json.dumps(metadata, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    print(
+        f"Updated {len(metadata)} SVG icon(s), synchronized "
+        f"{synchronized_count} metadata asset(s), and removed "
+        f"{removed_count} unreferenced SVG file(s)."
     )
 
 
 def process(args: argparse.Namespace) -> None:
-    if not PACKAGE_NAME_PATTERN.fullmatch(args.package_name):
-        raise SubmissionError("The configured Kotlin package name is invalid.")
-    if not args.valkyrie.is_file():
-        raise SubmissionError(f"Valkyrie executable not found at {args.valkyrie}.")
-    if not args.s2v.is_file():
-        raise SubmissionError(
-            f"svg2vectordrawable executable not found at {args.s2v}."
-        )
-
     if args.mode == "pull-request":
         process_pull_request(args)
-    else:
+    elif args.mode == "rebuild":
         rebuild_existing_icons(args)
+    else:
+        update_existing_icons()
 
 
 def main() -> int:
@@ -941,4 +757,4 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    raise SystemExit(main())

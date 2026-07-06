@@ -12,7 +12,7 @@ object, separated by a comma, when submitting multiple icons.
       "name": "Icon display name",
       "author": "Author display name",
       "file": "submissions/example.svg",
-      "link": "https://optional-author-or-project-link.example"
+      "link": "https://github.com/your-username/IconPack"
     }
   ]
 }

@@ -3,18 +3,16 @@
     "Name": "Sakura",
     "Author": "morieeattonkatsu",
     "GitHubAuthorUrl": "https://github.com/rukamori",
-    "Filename": "IconSakuraByChartreux5847.kt",
     "Link": "",
     "Id": "5847",
-    "Source": "sakura_chartreux_5847.xml",
+    "Source": "sakura_morieeattonkatsu_5847.svg",
     "Submission": "submissions/Sakura_Chartreux.svg"
   },
   {
     "Id": "104570",
     "Name": "Marin Kitagawa",
     "Author": "raspweed",
-    "Filename": "IconMarinKitagawaByRaspweed104570.kt",
-    "Source": "marin_kitagawa_raspweed_104570.xml",
+    "Source": "marin_kitagawa_raspweed_104570.svg",
     "Submission": "submissions/raspweed.svg",
     "Link": "https://github.com/raspweed/IconPack",
     "GitHubAuthorUrl": "https://github.com/raspweed"
@@ -23,8 +21,7 @@
     "Id": "950492",
     "Name": "Frostwave - Japanese Winter",
     "Author": "Animesh",
-    "Filename": "IconFrostwaveJapaneseWinterByAnimesh950492.kt",
-    "Source": "frostwave_japanese_winter_animesh_950492.xml",
+    "Source": "frostwave_japanese_winter_animesh_950492.svg",
     "Submission": "submissions/Frostwave.svg",
     "Link": "",
     "GitHubAuthorUrl": "https://github.com/agupta07505"
@@ -33,8 +30,7 @@
     "Id": "417667",
     "Name": "Suzume",
     "Author": "Animesh",
-    "Filename": "IconSuzumeByAnimesh417667.kt",
-    "Source": "suzume_animesh_417667.xml",
+    "Source": "suzume_animesh_417667.svg",
     "Submission": "submissions/Suzume.svg",
     "Link": "",
     "GitHubAuthorUrl": "https://github.com/agupta07505"
@@ -43,10 +39,63 @@
     "Id": "152487",
     "Name": "Sakura Retro",
     "Author": "morrieeattonkatsu",
-    "Filename": "IconSakuraRetroByMorrieeattonkatsu152487.kt",
-    "Source": "sakura_retro_morrieeattonkatsu_152487.xml",
+    "Source": "sakura_retro_morrieeattonkatsu_152487.svg",
     "Submission": "submissions/SakuraRetro.svg",
     "Link": "",
     "GitHubAuthorUrl": "https://github.com/rukamori"
+  },
+  {
+    "Id": "944391",
+    "Name": "pixelart",
+    "Author": "BunglonMewing",
+    "Source": "pixelart_bunglonmewing_944391.svg",
+    "Submission": "submissions/pixelart.svg",
+    "Link": "https://github.com/BunglonMewing/IconPack",
+    "GitHubAuthorUrl": "https://github.com/BunglonMewing"
+  },
+  {
+    "Id": "454033",
+    "Name": "Kanade Tune",
+    "Author": "BunglonMewing",
+    "Source": "kanade_tune_bunglonmewing_454033.svg",
+    "Submission": "submissions/kanade_tune.svg",
+    "Link": "https://github.com/BunglonMewing/IconPack",
+    "GitHubAuthorUrl": "https://github.com/BunglonMewing"
+  },
+  {
+    "Id": "801991",
+    "Name": "Hatsune Miku",
+    "Author": "ValteMCPE",
+    "Source": "hatsune_miku_valtemcpe_801991.svg",
+    "Submission": "submissions/hatsunemiku.svg",
+    "Link": "https://github.com/ValteMCPE/IconPack",
+    "GitHubAuthorUrl": "https://github.com/ValteMCPE"
+  },
+  {
+    "Id": "207115",
+    "Name": "Depth",
+    "Author": "cognitiveshadows03",
+    "Source": "depth_cognitiveshadows03_207115.svg",
+    "Submission": "submissions/depth.svg",
+    "Link": "https://github.com/cognitiveshadows03/IconPack",
+    "GitHubAuthorUrl": "https://github.com/cognitiveshadows03"
+  },
+  {
+    "Id": "692860",
+    "Name": "Neon Vibes",
+    "Author": "ValteMCPE",
+    "Source": "neon_vibes_valtemcpe_692860.svg",
+    "Submission": "submissions/neonvibes.svg",
+    "Link": "https://github.com/ValteMCPE/IconPack",
+    "GitHubAuthorUrl": "https://github.com/ValteMCPE"
+  },
+  {
+    "Id": "955439",
+    "Name": "Minecraft",
+    "Author": "BunglonMewing",
+    "Source": "minecraft_bunglonmewing_955439.svg",
+    "Submission": "submissions/Minecraft.svg",
+    "Link": "https://github.com/BunglonMewing/IconPack",
+    "GitHubAuthorUrl": "https://github.com/BunglonMewing"
   }
 ]
