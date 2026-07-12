@@ -4,7 +4,7 @@
 
 **A curated collection of beautiful, community-crafted icons for [ArchiveTune](https://github.com/koiverse)**
 
-[![Icons](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fraw.githubusercontent.com%2FArchiveTuneApp%2FArchiveTuneIconPack%2Fmain%2Fmetadata.json&query=%24.length&label=Icons&color=blueviolet&style=for-the-badge)](#icon-gallery)
+[![Icons](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fraw.githubusercontent.com%2Frukamori%2FArchiveTuneIconPack%2Fmain%2Fmetadata.json&query=%24.length&label=Icons&color=blueviolet&style=for-the-badge)](#icon-gallery)
 [![Contributors](https://img.shields.io/badge/Contributors-4-orange?style=for-the-badge)](#contributors)
 [![License](https://img.shields.io/badge/License-Community-green?style=for-the-badge)](#license)
 
