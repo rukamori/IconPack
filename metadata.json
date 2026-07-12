@@ -133,5 +133,23 @@
     "Submission": "submissions/Cherry_Grove_Minecraft.svg",
     "Link": "https://github.com/kpro199procreator/IconPack",
     "GitHubAuthorUrl": "https://github.com/kpro199procreator"
+   },
+   {
+    "Id": "320974",
+    "Name": "Bricks",
+    "Author": "DougAlvarenga",
+    "Source": "bricks_dougalvarenga_320974.svg",
+    "Submission": "submissions/brick.svg",
+    "Link": "https://github.com/dougalvarenga/IconPack",
+    "GitHubAuthorUrl": "https://github.com/dougalvarenga"
+  },
+  {
+    "Id": "980484",
+    "Name": "Guest Roblox",
+    "Author": "BunglonMewing",
+    "Source": "guest_roblox_bunglonmewing_980484.svg",
+    "Submission": "submissions/guest.svg",
+    "Link": "https://github.com/BunglonMewing/IconPack",
+    "GitHubAuthorUrl": "https://github.com/BunglonMewing"
   }
 ]
